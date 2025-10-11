@@ -103,7 +103,8 @@ vim.o.number = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
 vim.o.relativenumber = true
-vim.g.python3_host_prog = vim.fn.expand '~/.asdf/shims/python3'
+-- Python host program - will be set dynamically based on project
+-- vim.g.python3_host_prog = vim.fn.expand '~/.asdf/shims/python3'
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
 
@@ -218,6 +219,92 @@ vim.api.nvim_create_autocmd('TextYankPost', {
     vim.hl.on_yank()
   end,
 })
+
+-- Helper functions
+-- Compute project root using modern vim.fs APIs
+local function project_root(fname)
+  local start = vim.fs.dirname(fname)
+  -- Prefer common Python project files (uv projects use pyproject.toml)
+  local root_files = { 'pyproject.toml', 'uv.lock', 'setup.py', 'setup.cfg', 'requirements.txt', 'Pipfile' }
+  local root_file = vim.fs.find(root_files, { path = start, upward = true })[1]
+  if root_file then
+    return vim.fs.dirname(root_file)
+  end
+  -- Fallback to git root
+  local git = vim.fs.find('.git', { path = start, upward = true })[1]
+  if git then
+    return vim.fs.dirname(git)
+  end
+  -- Last resort: the directory of the file
+  return start
+end
+
+-- Find Python executable for a project, with uv support
+local function find_python_executable(root_dir)
+  local join = function(...)
+    return table.concat({ ... }, '/')
+  end
+
+  -- First, try uv if available and this is a uv project
+  if vim.fn.executable('uv') == 1 then
+    local pyproject = join(root_dir, 'pyproject.toml')
+    local uv_lock = join(root_dir, 'uv.lock')
+
+    if vim.fn.filereadable(pyproject) == 1 or vim.fn.filereadable(uv_lock) == 1 then
+      -- This looks like a uv project, try to get the python path from uv
+      local result = vim.fn.system('cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null')
+      if vim.v.shell_error == 0 and result and result:match('%S') then
+        local python_path = result:gsub('%s+$', '') -- trim whitespace
+        if vim.fn.executable(python_path) == 1 then
+          return python_path
+        end
+      end
+    end
+  end
+
+  -- Fallback to traditional venv detection
+  local candidates = {
+    join(root_dir, '.venv/bin/python'),
+    join(root_dir, 'venv/bin/python'),
+  }
+
+  -- Check VIRTUAL_ENV if set
+  if vim.env.VIRTUAL_ENV then
+    table.insert(candidates, 1, join(vim.env.VIRTUAL_ENV, 'bin/python'))
+  end
+
+  for _, python_path in ipairs(candidates) do
+    if vim.fn.executable(python_path) == 1 then
+      return python_path
+    end
+  end
+
+  -- Final fallback to system python
+  return 'python3'
+end
+
+-- Set python host program dynamically
+local function setup_python_host()
+  local current_file = vim.fn.expand('%:p')
+  if current_file and current_file ~= '' then
+    local root = project_root(current_file)
+    local python_path = find_python_executable(root)
+    vim.g.python3_host_prog = python_path
+  else
+    -- Fallback when no file is open
+    vim.g.python3_host_prog = vim.fn.expand '~/.asdf/shims/python3'
+  end
+end
+
+-- Setup python host on startup and when entering Python files
+vim.api.nvim_create_autocmd({ 'VimEnter', 'BufEnter' }, {
+  pattern = '*.py',
+  callback = setup_python_host,
+  desc = 'Setup Python host program for current project',
+})
+
+-- Also setup on startup
+setup_python_host()
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
@@ -674,26 +761,46 @@ require('lazy').setup({
         -- clangd = {},
         gopls = {},
         pylsp = {
-          root_dir = function(fname)
-            local root_files = {
-              'pyproject.toml',
-              'setup.py',
-              'setup.cfg',
-              'requirements.txt',
-              'Pipfile',
-            }
-            return util.root_pattern(unpack(root_files))(fname) or util.find_git_ancestor(fname)
+          root_dir = project_root,
+
+          on_new_config = function(new_config, root_dir)
+            -- Use our improved Python detection
+            local python_path = find_python_executable(root_dir)
+
+            if python_path and python_path ~= 'python3' then
+              -- Only switch if pylsp is available in that interpreter
+              local check_cmd = string.format('%s -c "import pylsp" 2>/dev/null', vim.fn.shellescape(python_path))
+              local result = vim.fn.system(check_cmd)
+              if vim.v.shell_error == 0 then
+                new_config.cmd = { python_path, '-m', 'pylsp' }
+                -- Also set the python path for the LSP to use
+                if new_config.settings and new_config.settings.pylsp then
+                  new_config.settings.pylsp.plugins = new_config.settings.pylsp.plugins or {}
+                  new_config.settings.pylsp.plugins.jedi = new_config.settings.pylsp.plugins.jedi or {}
+                  new_config.settings.pylsp.plugins.jedi.environment = python_path
+                end
+              end
+            end
           end,
           settings = {
             pylsp = {
-              pyflakes = { enabled = false },
-              pycodestyle = { enabled = false },
-              autopep8 = { enabled = false },
-              yapf = { enabled = false },
-              mccabe = { enabled = false },
-              pylsp_mypy = { enabled = false },
-              pylsp_black = { enabled = false },
-              pylsp_isort = { enabled = false },
+              plugins = {
+                -- Disable built-in linting/formatting (we'll use ruff for this)
+                pyflakes = { enabled = false },
+                pycodestyle = { enabled = false },
+                autopep8 = { enabled = false },
+                yapf = { enabled = false },
+                mccabe = { enabled = false },
+                pylsp_mypy = { enabled = false },
+                pylsp_black = { enabled = false },
+                pylsp_isort = { enabled = false },
+                -- Enable useful features
+                jedi_completion = { enabled = true },
+                jedi_hover = { enabled = true },
+                jedi_references = { enabled = true },
+                jedi_signature_help = { enabled = true },
+                jedi_symbols = { enabled = true },
+              },
             },
           },
         },
@@ -761,6 +868,7 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'ruff', -- Python linting and formatting
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -814,8 +922,8 @@ require('lazy').setup({
       formatters_by_ft = {
         lua = { 'stylua' },
         go = { 'gofmt' },
-        -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
+        -- Python formatting with ruff (fast and comprehensive)
+        python = { 'ruff_format', 'ruff_organize_imports' },
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         -- javascript = { "prettierd", "prettier", stop_after_first = true },
