@@ -306,6 +306,60 @@ vim.api.nvim_create_autocmd({ 'VimEnter', 'BufEnter' }, {
 -- Also setup on startup
 setup_python_host()
 
+-- Debug command for Python linting issues
+vim.api.nvim_create_user_command('DebugPythonLinting', function()
+  local function debug_python_linting()
+    print("=== Python Linting Debug ===")
+
+    -- Check current buffer
+    local filetype = vim.bo.filetype
+    print("Current filetype: " .. filetype)
+
+    if filetype ~= "python" then
+      print("⚠️  Not in a Python file")
+      return
+    end
+
+    -- Check active LSP clients
+    print("\n--- Active LSP Clients ---")
+    local clients = vim.lsp.get_clients({ bufnr = 0 })
+    for _, client in ipairs(clients) do
+      print("✅ " .. client.name)
+    end
+
+    -- Check diagnostics and their sources
+    print("\n--- Current Diagnostics ---")
+    local diagnostics = vim.diagnostic.get(0)
+    local pycodestyle_count = 0
+    for _, diag in ipairs(diagnostics) do
+      local source = diag.source or "unknown"
+      local message = diag.message or ""
+      print(string.format("Line %d [%s]: %s", diag.lnum + 1, source, message))
+      if message:match("line too long") or source:match("pycodestyle") then
+        pycodestyle_count = pycodestyle_count + 1
+      end
+    end
+
+    if pycodestyle_count > 0 then
+      print(string.format("\n⚠️  Found %d pycodestyle line length errors", pycodestyle_count))
+      print("Try: :LspRestart to reload LSP servers")
+    else
+      print("\n✅ No pycodestyle line length errors found")
+    end
+
+    -- Check for pyproject.toml
+    print("\n--- Configuration Files ---")
+    local pyproject_path = vim.fn.findfile("pyproject.toml", ".;")
+    if pyproject_path ~= "" then
+      print("✅ Found pyproject.toml at: " .. pyproject_path)
+    else
+      print("❌ pyproject.toml not found")
+    end
+  end
+
+  debug_python_linting()
+end, { desc = 'Debug Python linting configuration' })
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -785,7 +839,7 @@ require('lazy').setup({
           settings = {
             pylsp = {
               plugins = {
-                -- Disable built-in linting/formatting (we'll use ruff for this)
+                -- Disable ALL built-in linting/formatting (we'll use ruff for this)
                 pyflakes = { enabled = false },
                 pycodestyle = { enabled = false },
                 autopep8 = { enabled = false },
@@ -794,6 +848,11 @@ require('lazy').setup({
                 pylsp_mypy = { enabled = false },
                 pylsp_black = { enabled = false },
                 pylsp_isort = { enabled = false },
+                flake8 = { enabled = false },
+                pylint = { enabled = false },
+                pydocstyle = { enabled = false },
+                rope_autoimport = { enabled = false },
+                rope_completion = { enabled = false },
                 -- Enable useful features
                 jedi_completion = { enabled = true },
                 jedi_hover = { enabled = true },
@@ -805,9 +864,9 @@ require('lazy').setup({
           },
         },
         ruff = {
-          settings = {
-            pycodestyle = { enabled = false },
-          },
+          root_dir = project_root,
+          -- Let ruff automatically find and read pyproject.toml
+          -- No explicit settings needed - ruff will respect your pyproject.toml
           commands = {
             RuffAutofix = {
               function()
@@ -1128,7 +1187,7 @@ require('lazy').setup({
   --  Here are some example plugins that I've included in the Kickstart repository.
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
-  -- require 'kickstart.plugins.debug',
+  require 'kickstart.plugins.debug',
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',

@@ -97,7 +97,7 @@ return {
       ensure_installed = {
         -- Update this to ensure that you have the debuggers for the langs you want
         'delve',
-        'debugpy',
+        'debugpy', -- Python debugger (will also be installed in project venvs)
       },
     }
 
@@ -147,5 +147,109 @@ return {
         detached = vim.fn.has 'win32' == 0,
       },
     }
+
+    -- Python debugging setup with uv virtual environment support
+    local function setup_python_debugging()
+      -- Import the same helper functions from init.lua
+      local function project_root(fname)
+        local start = vim.fs.dirname(fname)
+        -- Prefer common Python project files (uv projects use pyproject.toml)
+        local root_files = { 'pyproject.toml', 'uv.lock', 'setup.py', 'setup.cfg', 'requirements.txt', 'Pipfile' }
+        local root_file = vim.fs.find(root_files, { path = start, upward = true })[1]
+        if root_file then
+          return vim.fs.dirname(root_file)
+        end
+        -- Fallback to git root
+        local git = vim.fs.find('.git', { path = start, upward = true })[1]
+        if git then
+          return vim.fs.dirname(git)
+        end
+        -- Last resort: the directory of the file
+        return start
+      end
+
+      local function find_python_executable(root_dir)
+        local join = function(...)
+          return table.concat({ ... }, '/')
+        end
+
+        -- First, try uv if available and this is a uv project
+        if vim.fn.executable('uv') == 1 then
+          local pyproject = join(root_dir, 'pyproject.toml')
+          local uv_lock = join(root_dir, 'uv.lock')
+
+          if vim.fn.filereadable(pyproject) == 1 or vim.fn.filereadable(uv_lock) == 1 then
+            -- This looks like a uv project, try to get the python path from uv
+            local result = vim.fn.system('cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null')
+            if vim.v.shell_error == 0 and result and result:match('%S') then
+              local python_path = result:gsub('%s+$', '') -- trim whitespace
+              if vim.fn.executable(python_path) == 1 then
+                return python_path
+              end
+            end
+          end
+        end
+
+        -- Fallback to traditional venv detection
+        local candidates = {
+          join(root_dir, '.venv/bin/python'),
+          join(root_dir, 'venv/bin/python'),
+        }
+
+        -- Check VIRTUAL_ENV if set
+        if vim.env.VIRTUAL_ENV then
+          table.insert(candidates, 1, join(vim.env.VIRTUAL_ENV, 'bin/python'))
+        end
+
+        for _, python_path in ipairs(candidates) do
+          if vim.fn.executable(python_path) == 1 then
+            return python_path
+          end
+        end
+
+        -- Final fallback to system python
+        return 'python3'
+      end
+
+      -- Get the current file and determine the Python executable
+      local current_file = vim.fn.expand('%:p')
+      local root_dir = current_file and current_file ~= '' and project_root(current_file) or vim.fn.getcwd()
+      local python_path = find_python_executable(root_dir)
+
+      -- Setup nvim-dap-python with the detected Python executable
+      require('dap-python').setup(python_path)
+
+      -- Ensure debugpy is available in the virtual environment
+      local function ensure_debugpy()
+        if python_path and python_path ~= 'python3' then
+          local check_cmd = string.format('%s -c "import debugpy" 2>/dev/null', vim.fn.shellescape(python_path))
+          local result = vim.fn.system(check_cmd)
+          if vim.v.shell_error ~= 0 then
+            vim.notify(
+              string.format(
+                'debugpy not found in virtual environment (%s). Install it with: %s -m pip install debugpy',
+                python_path,
+                python_path
+              ),
+              vim.log.levels.WARN
+            )
+          end
+        end
+      end
+
+      ensure_debugpy()
+    end
+
+    -- Setup Python debugging when entering Python files
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = 'python',
+      callback = setup_python_debugging,
+      desc = 'Setup Python debugging with project virtual environment',
+    })
+
+    -- Also setup immediately if we're already in a Python file
+    if vim.bo.filetype == 'python' then
+      setup_python_debugging()
+    end
   end,
 }
