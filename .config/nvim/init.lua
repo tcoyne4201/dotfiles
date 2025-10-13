@@ -830,7 +830,7 @@ require('lazy').setup({
             client.server_capabilities.documentRangeFormattingProvider = false
             client.server_capabilities.documentHighlightProvider = false  -- Disable to prevent CursorHold errors
 
-            print("✅ Pyright configured for hover, completion, and go-to-definition")
+
           end,
           on_new_config = function(new_config, root_dir)
             -- Detect Python virtual environment
@@ -850,9 +850,6 @@ require('lazy').setup({
 
             if python_path and python_path ~= 'python3' then
               new_config.settings.python.pythonPath = python_path
-              print("🐍 Pyright using Python:", python_path)
-            else
-              print("🐍 Pyright using system Python")
             end
           end,
           settings = {
@@ -873,7 +870,7 @@ require('lazy').setup({
           on_attach = function(client, bufnr)
             -- Disable hover in favor of pyright
             client.server_capabilities.hoverProvider = false
-            print("✅ Ruff configured for linting (hover disabled)")
+
           end,
           -- Remove init_options for now to avoid invalid settings error
         },
@@ -941,7 +938,6 @@ require('lazy').setup({
       }
 
       -- Manual server configuration to ensure our settings are applied
-      print("🔧 Configuring servers manually...")
 
       -- Configure pyright manually with virtual environment detection
       local pyright_config = servers.pyright or {}
@@ -967,28 +963,16 @@ require('lazy').setup({
           if venv_dir then
             pyright_config.settings.python.venvPath = venv_dir
             pyright_config.settings.python.venv = ".venv"
-            print("🐍 Setting pyright Python path to:", python_path)
-            print("🐍 Adding site-packages path:", site_packages)
-            print("🐍 Setting venvPath to:", venv_dir)
-          else
-            print("🐍 Setting pyright Python path to:", python_path)
-            print("🐍 Adding site-packages path:", site_packages)
           end
-        else
-          print("🐍 Setting pyright Python path to:", python_path, "(couldn't get site-packages)")
         end
-      else
-        print("🐍 Using system Python for pyright")
       end
 
       vim.lsp.config('pyright', pyright_config)
-      print("✅ Configured pyright manually")
 
       -- Configure ruff manually
       local ruff_config = servers.ruff or {}
       ruff_config.capabilities = vim.tbl_deep_extend('force', {}, capabilities, ruff_config.capabilities or {})
       vim.lsp.config('ruff', ruff_config)
-      print("✅ Configured ruff manually")
 
       -- Configure other servers with default settings
       for server_name, server_config in pairs(servers) do
@@ -996,7 +980,6 @@ require('lazy').setup({
           local config = vim.tbl_deep_extend('force', {}, server_config)
           config.capabilities = vim.tbl_deep_extend('force', {}, capabilities, config.capabilities or {})
           vim.lsp.config(server_name, config)
-          print("✅ Configured", server_name, "with default settings")
         end
       end
 
