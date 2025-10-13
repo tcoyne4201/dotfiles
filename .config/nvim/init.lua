@@ -239,7 +239,7 @@ local function project_root(fname)
   return start
 end
 
--- Find Python executable for a project, with uv support
+-- Enhanced Python executable detection with uv support
 local function find_python_executable(root_dir)
   local join = function(...)
     return table.concat({ ... }, '/')
@@ -252,7 +252,8 @@ local function find_python_executable(root_dir)
 
     if vim.fn.filereadable(pyproject) == 1 or vim.fn.filereadable(uv_lock) == 1 then
       -- This looks like a uv project, try to get the python path from uv
-      local result = vim.fn.system('cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null')
+      local uv_cmd = 'cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null'
+      local result = vim.fn.system(uv_cmd)
       if vim.v.shell_error == 0 and result and result:match('%S') then
         local python_path = result:gsub('%s+$', '') -- trim whitespace
         if vim.fn.executable(python_path) == 1 then
@@ -282,6 +283,10 @@ local function find_python_executable(root_dir)
   -- Final fallback to system python
   return 'python3'
 end
+
+-- Make functions available globally for debugging
+_G.find_python_executable = find_python_executable
+_G.project_root = project_root
 
 -- Set python host program dynamically
 local function setup_python_host()
@@ -732,28 +737,30 @@ require('lazy').setup({
           --
           -- When you move your cursor, the highlights will be cleared (the second autocommand).
           local client = vim.lsp.get_client_by_id(event.data.client_id)
-          if client and client_supports_method(client, vim.lsp.protocol.Methods.textDocument_documentHighlight, event.buf) then
-            local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
-            vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
-              buffer = event.buf,
-              group = highlight_augroup,
-              callback = vim.lsp.buf.document_highlight,
-            })
+          -- Disable document highlighting to prevent errors with pyright
+          -- (since we disabled documentHighlightProvider in pyright's on_attach)
+          -- if client and client_supports_method(client, vim.lsp.protocol.Methods.textDocument_documentHighlight, event.buf) then
+          --   local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
+          --   vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
+          --     buffer = event.buf,
+          --     group = highlight_augroup,
+          --     callback = vim.lsp.buf.document_highlight,
+          --   })
 
-            vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
-              buffer = event.buf,
-              group = highlight_augroup,
-              callback = vim.lsp.buf.clear_references,
-            })
+          --   vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
+          --     buffer = event.buf,
+          --     group = highlight_augroup,
+          --     callback = vim.lsp.buf.clear_references,
+          --   })
 
-            vim.api.nvim_create_autocmd('LspDetach', {
-              group = vim.api.nvim_create_augroup('kickstart-lsp-detach', { clear = true }),
-              callback = function(event2)
-                vim.lsp.buf.clear_references()
-                vim.api.nvim_clear_autocmds { group = 'kickstart-lsp-highlight', buffer = event2.buf }
-              end,
-            })
-          end
+          --   vim.api.nvim_create_autocmd('LspDetach', {
+          --     group = vim.api.nvim_create_augroup('kickstart-lsp-detach', { clear = true }),
+          --     callback = function(event2)
+          --       vim.lsp.buf.clear_references()
+          --       vim.api.nvim_clear_autocmds { group = 'kickstart-lsp-highlight', buffer = event2.buf }
+          --     end,
+          --   })
+          -- end
 
           -- The following code creates a keymap to toggle inlay hints in your
           -- code, if the language server you are using supports them
@@ -814,77 +821,66 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         gopls = {},
-        pylsp = {
-          root_dir = project_root,
+        pyright = {
+          on_attach = function(client, bufnr)
+            -- Only disable the capabilities we don't want, leave the rest alone
+            -- Keep: completionProvider, hoverProvider, definitionProvider
+            client.server_capabilities.diagnosticProvider = false  -- Disable diagnostics (ruff handles this)
+            client.server_capabilities.documentFormattingProvider = false  -- Disable formatting (ruff handles this)
+            client.server_capabilities.documentRangeFormattingProvider = false
+            client.server_capabilities.documentHighlightProvider = false  -- Disable to prevent CursorHold errors
 
+            print("✅ Pyright configured for hover, completion, and go-to-definition")
+          end,
           on_new_config = function(new_config, root_dir)
-            -- Use our improved Python detection
+            -- Detect Python virtual environment
             local python_path = find_python_executable(root_dir)
 
+            -- Set the python path for pyright
+            new_config.settings = new_config.settings or {}
+            new_config.settings.python = new_config.settings.python or {}
+            new_config.settings.python.analysis = new_config.settings.python.analysis or {}
+
+            -- Apply our settings
+            new_config.settings.python.analysis.useLibraryCodeForTypes = true
+            new_config.settings.python.analysis.typeCheckingMode = 'off'
+            new_config.settings.python.analysis.diagnosticMode = 'off'
+            new_config.settings.python.analysis.autoSearchPaths = true
+            new_config.settings.python.analysis.autoImportCompletions = true
+
             if python_path and python_path ~= 'python3' then
-              -- Only switch if pylsp is available in that interpreter
-              local check_cmd = string.format('%s -c "import pylsp" 2>/dev/null', vim.fn.shellescape(python_path))
-              local result = vim.fn.system(check_cmd)
-              if vim.v.shell_error == 0 then
-                new_config.cmd = { python_path, '-m', 'pylsp' }
-                -- Also set the python path for the LSP to use
-                if new_config.settings and new_config.settings.pylsp then
-                  new_config.settings.pylsp.plugins = new_config.settings.pylsp.plugins or {}
-                  new_config.settings.pylsp.plugins.jedi = new_config.settings.pylsp.plugins.jedi or {}
-                  new_config.settings.pylsp.plugins.jedi.environment = python_path
-                end
-              end
+              new_config.settings.python.pythonPath = python_path
+              print("🐍 Pyright using Python:", python_path)
+            else
+              print("🐍 Pyright using system Python")
             end
           end,
           settings = {
-            pylsp = {
-              plugins = {
-                -- Disable ALL built-in linting/formatting (we'll use ruff for this)
-                pyflakes = { enabled = false },
-                pycodestyle = { enabled = false },
-                autopep8 = { enabled = false },
-                yapf = { enabled = false },
-                mccabe = { enabled = false },
-                pylsp_mypy = { enabled = false },
-                pylsp_black = { enabled = false },
-                pylsp_isort = { enabled = false },
-                flake8 = { enabled = false },
-                pylint = { enabled = false },
-                pydocstyle = { enabled = false },
-                rope_autoimport = { enabled = false },
-                rope_completion = { enabled = false },
-                -- Enable useful features
-                jedi_completion = { enabled = true },
-                jedi_hover = { enabled = true },
-                jedi_references = { enabled = true },
-                jedi_signature_help = { enabled = true },
-                jedi_symbols = { enabled = true },
+            python = {
+              analysis = {
+                useLibraryCodeForTypes = true,
+                typeCheckingMode = 'off',
+                diagnosticMode = 'off',
+                autoSearchPaths = true,
+                autoImportCompletions = true,
+                stubPath = '',  -- Use default stub path
+                typeshedPaths = {},  -- Use default typeshed
               },
             },
           },
         },
         ruff = {
-          root_dir = project_root,
-          -- Let ruff automatically find and read pyproject.toml
-          -- No explicit settings needed - ruff will respect your pyproject.toml
-          commands = {
-            RuffAutofix = {
-              function()
-                vim.lsp.buf.execute_command {
-                  command = 'ruff.applyAutofix',
-                  arguments = {
-                    { uri = vim.uri_from_bufnr(0) },
-                  },
-                }
-              end,
-              description = 'Ruff: Format imports',
-            },
-          },
+          on_attach = function(client, bufnr)
+            -- Disable hover in favor of pyright
+            client.server_capabilities.hoverProvider = false
+            print("✅ Ruff configured for linting (hover disabled)")
+          end,
+          -- Remove init_options for now to avoid invalid settings error
         },
         jsonls = {},
         dockerls = {},
         sqlls = {},
-        -- pyright = {},
+
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
@@ -911,6 +907,8 @@ require('lazy').setup({
         },
       }
 
+
+
       -- Ensure the servers and tools above are installed
       --
       -- To check the current status of installed tools and/or manually install
@@ -935,16 +933,74 @@ require('lazy').setup({
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
         automatic_installation = false,
         handlers = {
+          -- Skip all automatic handlers - we'll configure manually
           function(server_name)
-            local server = servers[server_name] or {}
-            -- This handles overriding only values explicitly passed
-            -- by the server configuration above. Useful when disabling
-            -- certain features of an LSP (for example, turning off formatting for ts_ls)
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
+            -- Do nothing - we'll configure servers manually below
           end,
         },
       }
+
+      -- Manual server configuration to ensure our settings are applied
+      print("🔧 Configuring servers manually...")
+
+      -- Configure pyright manually with virtual environment detection
+      local pyright_config = servers.pyright or {}
+      pyright_config.capabilities = vim.tbl_deep_extend('force', {}, capabilities, pyright_config.capabilities or {})
+
+      -- Detect Python path for current project
+      local python_path = find_python_executable(vim.fn.getcwd())
+      if python_path and python_path ~= 'python3' then
+        pyright_config.settings = pyright_config.settings or {}
+        pyright_config.settings.python = pyright_config.settings.python or {}
+        pyright_config.settings.python.pythonPath = python_path
+
+        -- Get site-packages path to help pyright find installed packages
+        local site_packages_cmd = string.format('%s -c "import site; print(site.getsitepackages()[0])" 2>/dev/null', vim.fn.shellescape(python_path))
+        local site_packages = vim.fn.system(site_packages_cmd):gsub('\n', '')
+
+        if vim.v.shell_error == 0 and site_packages ~= '' then
+          pyright_config.settings.python.analysis = pyright_config.settings.python.analysis or {}
+          pyright_config.settings.python.analysis.extraPaths = { site_packages }
+
+          -- Also try setting venvPath and venv for more reliable detection
+          local venv_dir = python_path:match("(.+)/.venv/bin/python")
+          if venv_dir then
+            pyright_config.settings.python.venvPath = venv_dir
+            pyright_config.settings.python.venv = ".venv"
+            print("🐍 Setting pyright Python path to:", python_path)
+            print("🐍 Adding site-packages path:", site_packages)
+            print("🐍 Setting venvPath to:", venv_dir)
+          else
+            print("🐍 Setting pyright Python path to:", python_path)
+            print("🐍 Adding site-packages path:", site_packages)
+          end
+        else
+          print("🐍 Setting pyright Python path to:", python_path, "(couldn't get site-packages)")
+        end
+      else
+        print("🐍 Using system Python for pyright")
+      end
+
+      vim.lsp.config('pyright', pyright_config)
+      print("✅ Configured pyright manually")
+
+      -- Configure ruff manually
+      local ruff_config = servers.ruff or {}
+      ruff_config.capabilities = vim.tbl_deep_extend('force', {}, capabilities, ruff_config.capabilities or {})
+      vim.lsp.config('ruff', ruff_config)
+      print("✅ Configured ruff manually")
+
+      -- Configure other servers with default settings
+      for server_name, server_config in pairs(servers) do
+        if server_name ~= 'pyright' and server_name ~= 'ruff' then
+          local config = vim.tbl_deep_extend('force', {}, server_config)
+          config.capabilities = vim.tbl_deep_extend('force', {}, capabilities, config.capabilities or {})
+          vim.lsp.config(server_name, config)
+          print("✅ Configured", server_name, "with default settings")
+        end
+      end
+
+
     end,
   },
 
@@ -1188,10 +1244,11 @@ require('lazy').setup({
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
   require 'kickstart.plugins.debug',
-  -- require 'kickstart.plugins.indent_line',
+  require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
   require 'kickstart.plugins.neo-tree',
+  require 'kickstart.plugins.flash',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
