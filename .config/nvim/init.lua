@@ -246,7 +246,7 @@ local function find_python_executable(root_dir)
   end
 
   -- First, try uv if available and this is a uv project
-  if vim.fn.executable('uv') == 1 then
+  if vim.fn.executable 'uv' == 1 then
     local pyproject = join(root_dir, 'pyproject.toml')
     local uv_lock = join(root_dir, 'uv.lock')
 
@@ -254,7 +254,7 @@ local function find_python_executable(root_dir)
       -- This looks like a uv project, try to get the python path from uv
       local uv_cmd = 'cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null'
       local result = vim.fn.system(uv_cmd)
-      if vim.v.shell_error == 0 and result and result:match('%S') then
+      if vim.v.shell_error == 0 and result and result:match '%S' then
         local python_path = result:gsub('%s+$', '') -- trim whitespace
         if vim.fn.executable(python_path) == 1 then
           return python_path
@@ -290,7 +290,7 @@ _G.project_root = project_root
 
 -- Set python host program dynamically
 local function setup_python_host()
-  local current_file = vim.fn.expand('%:p')
+  local current_file = vim.fn.expand '%:p'
   if current_file and current_file ~= '' then
     local root = project_root(current_file)
     local python_path = find_python_executable(root)
@@ -314,51 +314,51 @@ setup_python_host()
 -- Debug command for Python linting issues
 vim.api.nvim_create_user_command('DebugPythonLinting', function()
   local function debug_python_linting()
-    print("=== Python Linting Debug ===")
+    print '=== Python Linting Debug ==='
 
     -- Check current buffer
     local filetype = vim.bo.filetype
-    print("Current filetype: " .. filetype)
+    print('Current filetype: ' .. filetype)
 
-    if filetype ~= "python" then
-      print("⚠️  Not in a Python file")
+    if filetype ~= 'python' then
+      print '⚠️  Not in a Python file'
       return
     end
 
     -- Check active LSP clients
-    print("\n--- Active LSP Clients ---")
-    local clients = vim.lsp.get_clients({ bufnr = 0 })
+    print '\n--- Active LSP Clients ---'
+    local clients = vim.lsp.get_clients { bufnr = 0 }
     for _, client in ipairs(clients) do
-      print("✅ " .. client.name)
+      print('✅ ' .. client.name)
     end
 
     -- Check diagnostics and their sources
-    print("\n--- Current Diagnostics ---")
+    print '\n--- Current Diagnostics ---'
     local diagnostics = vim.diagnostic.get(0)
     local pycodestyle_count = 0
     for _, diag in ipairs(diagnostics) do
-      local source = diag.source or "unknown"
-      local message = diag.message or ""
-      print(string.format("Line %d [%s]: %s", diag.lnum + 1, source, message))
-      if message:match("line too long") or source:match("pycodestyle") then
+      local source = diag.source or 'unknown'
+      local message = diag.message or ''
+      print(string.format('Line %d [%s]: %s', diag.lnum + 1, source, message))
+      if message:match 'line too long' or source:match 'pycodestyle' then
         pycodestyle_count = pycodestyle_count + 1
       end
     end
 
     if pycodestyle_count > 0 then
-      print(string.format("\n⚠️  Found %d pycodestyle line length errors", pycodestyle_count))
-      print("Try: :LspRestart to reload LSP servers")
+      print(string.format('\n⚠️  Found %d pycodestyle line length errors', pycodestyle_count))
+      print 'Try: :LspRestart to reload LSP servers'
     else
-      print("\n✅ No pycodestyle line length errors found")
+      print '\n✅ No pycodestyle line length errors found'
     end
 
     -- Check for pyproject.toml
-    print("\n--- Configuration Files ---")
-    local pyproject_path = vim.fn.findfile("pyproject.toml", ".;")
-    if pyproject_path ~= "" then
-      print("✅ Found pyproject.toml at: " .. pyproject_path)
+    print '\n--- Configuration Files ---'
+    local pyproject_path = vim.fn.findfile('pyproject.toml', '.;')
+    if pyproject_path ~= '' then
+      print('✅ Found pyproject.toml at: ' .. pyproject_path)
     else
-      print("❌ pyproject.toml not found")
+      print '❌ pyproject.toml not found'
     end
   end
 
@@ -825,12 +825,10 @@ require('lazy').setup({
           on_attach = function(client, bufnr)
             -- Only disable the capabilities we don't want, leave the rest alone
             -- Keep: completionProvider, hoverProvider, definitionProvider
-            client.server_capabilities.diagnosticProvider = false  -- Disable diagnostics (ruff handles this)
-            client.server_capabilities.documentFormattingProvider = false  -- Disable formatting (ruff handles this)
+            client.server_capabilities.diagnosticProvider = false -- Disable diagnostics (ruff handles this)
+            client.server_capabilities.documentFormattingProvider = false -- Disable formatting (ruff handles this)
             client.server_capabilities.documentRangeFormattingProvider = false
-            client.server_capabilities.documentHighlightProvider = false  -- Disable to prevent CursorHold errors
-
-
+            client.server_capabilities.documentHighlightProvider = false -- Disable to prevent CursorHold errors
           end,
           on_new_config = function(new_config, root_dir)
             -- Detect Python virtual environment
@@ -860,8 +858,8 @@ require('lazy').setup({
                 diagnosticMode = 'off',
                 autoSearchPaths = true,
                 autoImportCompletions = true,
-                stubPath = '',  -- Use default stub path
-                typeshedPaths = {},  -- Use default typeshed
+                stubPath = '', -- Use default stub path
+                typeshedPaths = {}, -- Use default typeshed
               },
             },
           },
@@ -870,13 +868,13 @@ require('lazy').setup({
           on_attach = function(client, bufnr)
             -- Disable hover in favor of pyright
             client.server_capabilities.hoverProvider = false
-
           end,
           -- Remove init_options for now to avoid invalid settings error
         },
         jsonls = {},
         dockerls = {},
         sqlls = {},
+        svelte = {},
 
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
@@ -903,8 +901,6 @@ require('lazy').setup({
           },
         },
       }
-
-
 
       -- Ensure the servers and tools above are installed
       --
@@ -959,10 +955,10 @@ require('lazy').setup({
           pyright_config.settings.python.analysis.extraPaths = { site_packages }
 
           -- Also try setting venvPath and venv for more reliable detection
-          local venv_dir = python_path:match("(.+)/.venv/bin/python")
+          local venv_dir = python_path:match '(.+)/.venv/bin/python'
           if venv_dir then
             pyright_config.settings.python.venvPath = venv_dir
-            pyright_config.settings.python.venv = ".venv"
+            pyright_config.settings.python.venv = '.venv'
           end
         end
       end
@@ -982,8 +978,6 @@ require('lazy').setup({
           vim.lsp.config(server_name, config)
         end
       end
-
-
     end,
   },
 
@@ -1230,7 +1224,9 @@ require('lazy').setup({
   require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
-  require 'kickstart.plugins.neo-tree',
+  -- require 'kickstart.plugins.neo-tree',
+  require 'lua.custom.plugins.snacks',
+  require 'lua.custom.plugins.typescript',
   require 'kickstart.plugins.flash',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 

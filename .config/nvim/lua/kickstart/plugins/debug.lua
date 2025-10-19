@@ -124,16 +124,16 @@ return {
     }
 
     -- Change breakpoint icons
-    -- vim.api.nvim_set_hl(0, 'DapBreak', { fg = '#e51400' })
-    -- vim.api.nvim_set_hl(0, 'DapStop', { fg = '#ffcc00' })
-    -- local breakpoint_icons = vim.g.have_nerd_font
-    --     and { Breakpoint = '', BreakpointCondition = '', BreakpointRejected = '', LogPoint = '', Stopped = '' }
-    --   or { Breakpoint = '●', BreakpointCondition = '⊜', BreakpointRejected = '⊘', LogPoint = '◆', Stopped = '⭔' }
-    -- for type, icon in pairs(breakpoint_icons) do
-    --   local tp = 'Dap' .. type
-    --   local hl = (type == 'Stopped') and 'DapStop' or 'DapBreak'
-    --   vim.fn.sign_define(tp, { text = icon, texthl = hl, numhl = hl })
-    -- end
+    vim.api.nvim_set_hl(0, 'DapBreak', { fg = '#e51400' })
+    vim.api.nvim_set_hl(0, 'DapStop', { fg = '#ffcc00' })
+    local breakpoint_icons = vim.g.have_nerd_font
+        and { Breakpoint = '', BreakpointCondition = '', BreakpointRejected = '', LogPoint = '', Stopped = '' }
+      or { Breakpoint = '●', BreakpointCondition = '⊜', BreakpointRejected = '⊘', LogPoint = '◆', Stopped = '⭔' }
+    for type, icon in pairs(breakpoint_icons) do
+      local tp = 'Dap' .. type
+      local hl = (type == 'Stopped') and 'DapStop' or 'DapBreak'
+      vim.fn.sign_define(tp, { text = icon, texthl = hl, numhl = hl })
+    end
 
     dap.listeners.after.event_initialized['dapui_config'] = dapui.open
     dap.listeners.before.event_terminated['dapui_config'] = dapui.close
@@ -174,14 +174,14 @@ return {
         end
 
         -- First, try uv if available and this is a uv project
-        if vim.fn.executable('uv') == 1 then
+        if vim.fn.executable 'uv' == 1 then
           local pyproject = join(root_dir, 'pyproject.toml')
           local uv_lock = join(root_dir, 'uv.lock')
 
           if vim.fn.filereadable(pyproject) == 1 or vim.fn.filereadable(uv_lock) == 1 then
             -- This looks like a uv project, try to get the python path from uv
             local result = vim.fn.system('cd ' .. vim.fn.shellescape(root_dir) .. ' && uv python find 2>/dev/null')
-            if vim.v.shell_error == 0 and result and result:match('%S') then
+            if vim.v.shell_error == 0 and result and result:match '%S' then
               local python_path = result:gsub('%s+$', '') -- trim whitespace
               if vim.fn.executable(python_path) == 1 then
                 return python_path
@@ -212,7 +212,7 @@ return {
       end
 
       -- Get the current file and determine the Python executable
-      local current_file = vim.fn.expand('%:p')
+      local current_file = vim.fn.expand '%:p'
       local root_dir = current_file and current_file ~= '' and project_root(current_file) or vim.fn.getcwd()
       local python_path = find_python_executable(root_dir)
 
@@ -226,11 +226,7 @@ return {
           local result = vim.fn.system(check_cmd)
           if vim.v.shell_error ~= 0 then
             vim.notify(
-              string.format(
-                'debugpy not found in virtual environment (%s). Install it with: %s -m pip install debugpy',
-                python_path,
-                python_path
-              ),
+              string.format('debugpy not found in virtual environment (%s). Install it with: %s -m pip install debugpy', python_path, python_path),
               vim.log.levels.WARN
             )
           end
