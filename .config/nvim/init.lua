@@ -167,6 +167,12 @@ vim.o.scrolloff = 10
 -- See `:help 'confirm'`
 vim.o.confirm = true
 
+-- Better completion experience
+vim.o.completeopt = 'menuone,noselect'
+
+-- Better search experience
+vim.o.hlsearch = true
+
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
@@ -310,6 +316,10 @@ vim.api.nvim_create_autocmd({ 'VimEnter', 'BufEnter' }, {
 
 -- Also setup on startup
 setup_python_host()
+
+-- Load custom configuration
+-- require 'custom.options'
+-- require 'custom.keymaps'
 
 -- Debug command for Python linting issues
 vim.api.nvim_create_user_command('DebugPythonLinting', function()
@@ -875,6 +885,8 @@ require('lazy').setup({
         dockerls = {},
         sqlls = {},
         svelte = {},
+        -- TypeScript/JavaScript (handled by typescript-tools.nvim)
+        -- ts_ls = {}, -- Commented out since we use typescript-tools
 
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
@@ -919,6 +931,8 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'ruff', -- Python linting and formatting
+        'prettierd', -- Fast prettier for JS/TS/JSON/CSS/HTML/Markdown
+        'markdownlint', -- Markdown linting
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -1016,9 +1030,15 @@ require('lazy').setup({
         go = { 'gofmt' },
         -- Python formatting with ruff (fast and comprehensive)
         python = { 'ruff_format', 'ruff_organize_imports' },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
+        -- JavaScript/TypeScript formatting
+        javascript = { 'prettierd', 'prettier', stop_after_first = true },
+        typescript = { 'prettierd', 'prettier', stop_after_first = true },
+        javascriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+        typescriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+        json = { 'prettierd', 'prettier', stop_after_first = true },
+        css = { 'prettierd', 'prettier', stop_after_first = true },
+        html = { 'prettierd', 'prettier', stop_after_first = true },
+        markdown = { 'prettierd', 'prettier', stop_after_first = true },
       },
     },
   },
@@ -1222,11 +1242,11 @@ require('lazy').setup({
   --
   require 'kickstart.plugins.debug',
   require 'kickstart.plugins.indent_line',
-  -- require 'kickstart.plugins.lint',
-  -- require 'kickstart.plugins.autopairs',
+  require 'kickstart.plugins.lint',
+  require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
-  require 'lua.custom.plugins.snacks',
-  require 'lua.custom.plugins.typescript',
+  require 'custom.plugins.snacks',
+  require 'custom.plugins.typescript',
   require 'kickstart.plugins.flash',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
